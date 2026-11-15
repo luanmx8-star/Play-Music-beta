@@ -1,1 +1,69 @@
 name: Gerar APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Criar projeto Android
+        run: |
+          mkdir -p www
+          cp index.html www/index.html
+          npm init -y
+          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          cat > capacitor.config.json <<'EOF'
+          {"appId":"com.vitrola.player","appName":"Vitrola","webDir":"www","server":{"androidScheme":"https"}}
+          EOF
+          npx cap add android
+
+      - name: Criar icone do app
+        continue-on-error: true
+        run: |
+          pip install pillow
+          mkdir -p assets
+          python3 - <<'EOF'
+          from PIL import Image, ImageDraw
+          S = 1024
+          im = Image.new("RGB", (S, S), (43, 123, 255))
+          d = ImageDraw.Draw(im)
+          c = S // 2
+          d.ellipse((c - 300, c - 300, c + 300, c + 300), fill=(20, 22, 26))
+          for r in (250, 200, 150):
+              d.ellipse((c - r, c - r, c + r, c + r), outline=(52, 56, 62), width=5)
+          d.ellipse((c - 105, c - 105, c + 105, c + 105), fill=(255, 255, 255))
+          d.ellipse((c - 22, c - 22, c + 22, c + 22), fill=(20, 22, 26))
+          im.save("assets/icon.png")
+          EOF
+          npx --yes @capacitor/assets generate --android
+
+      - name: Montar APK
+        run: |
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Publicar APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: Vitrola ${{ github.run_number }}
+          files: android/app/build/outputs/apk/debug/app-debug.apk
